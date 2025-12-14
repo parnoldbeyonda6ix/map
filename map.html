@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>South-West Nottingham, 1999</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.awesome-markers@2.0.2/dist/leaflet.awesome-markers.css">
+
+    <style>
+        /* CRITICAL FIX: Changed height to fixed pixels as vh may be blocked in Google Sites */
+        #map { 
+            height: 600px; /* FIXED HEIGHT FOR RELIABILITY */
+            width: 90%; 
+            margin: 20px auto; 
+            border: 2px solid #0078A8; 
+            border-radius: 8px;
+        }
+        body { font-family: sans-serif; text-align: center; }
+        h1 { color: #333; }
+        .popup-info p { margin: 5px 0; }
+        .popup-actions button { 
+            padding: 8px 12px; 
+            margin-right: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .delete-btn { background-color: #D9534F; color: white; }
+        .edit-btn { background-color: #5BC0DE; color: white; }
+
+        /* General form styles for popups */
+        .leaflet-popup-content form label { display: block; margin-top: 8px; font-weight: bold; }
+        .leaflet-popup-content form input, 
+        .leaflet-popup-content form select, 
+        .leaflet-popup-content form textarea { width: 100%; padding: 5px; margin-bottom: 10px; box-sizing: border-box; }
+        .leaflet-popup-content form button { padding: 10px 15px; background-color: #0078A8; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>💾 South-West Nottingham, 1999</h1>
+    <p>Hover over a pin for quick details. Click to view full details, edit, or delete.</p>
+    
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.awesome-markers@2.0.2/dist/leaflet.awesome-markers.js"></script>
+    <script>
+        // =========================================================================
+        // !!! API URL (UNCHANGED) !!!
+        // =========================================================================
+        const SHEETDB_API_URL = 'https://sheetdb.io/api/v1/h61156dav9u4b'; 
+
+        // =========================================================================
+        // !!! COORDINATES (UNCHANGED) !!!
+        // =========================================================================
+        const INITIAL_LAT = 52.93;                     
+        const INITIAL_LNG = -1.26646840126021;         
+        const INITIAL_ZOOM = 15;      
+
+        const COLOR_OPTIONS = [
+            { name: 'Red', value: 'red' },
+            { name: 'Blue', value: 'blue' },
+            { name: 'Green', value: 'green' },
+            { name: 'Orange', value: 'orange' },
+            { name: 'Black', value: 'black' }
+        ];
+
+        // --- 1. Initialize the Map ---
+        const map = L.map('map').setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
+
+        // --- 2. Add OpenStreetMap Tiles ---
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+
+        // --- DELETE FUNCTION (UNCHANGED) ---
+        function deleteMarker(markerId, markerLayer) {
+            if (!confirm(`Are you sure you want to delete the entry with ID: ${markerId}?`)) { return; }
+            fetch(`${SHEETDB_API_URL}/id/${markerId}`, { method: 'DELETE' })
+            .then(response => response.json())
+            .then(result => {
+                if (result.deleted === 1) {
+                    alert('Entry deleted successfully!');
+                    map.removeLayer(markerLayer); 
+                } else { alert('Error deleting entry. Check SheetDB and console.'); }
+            })
+            .catch(error => console.error('Error during deletion:', error));
+        }
+
+
+        // --- EDIT/UPDATE FUNCTION (UNCHANGED) ---
+        function updateMarker(markerId, form, markerLayer) {
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+
+            const payload = { data: data };
+
+            fetch(`${SHEETDB_API_URL}/id/${markerId}`, {
+                method: 'PUT',
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.updated === 1) {
+                    alert(`Entry ID ${markerId} updated successfully!`);
+                    map.removeLayer(markerLayer); 
+                    
+                    data.lat = parseFloat(data.lat);
+                    data.lng = parseFloat(data.lng);
+                    createMarker(data); 
+
+                    map.closePopup();
+                } else { alert('Error updating entry. Check SheetDB and console.'); }
+            })
+            .catch(error => console.error('Error during update:', error));
+        }
+
+        
+        // --- EDIT FORM HTML (Separate function) ---
+        function getEditFormHTML(data) {
+            let colorOptions = COLOR_OPTIONS.map(c => 
+                `<option value="${c.value}" ${data.color === c.value ? 'selected' : ''}>${c.name}</option>`
+            ).join('');
+
+            return `
+                <h4>Edit Location Info (ID: ${data.id})</h4>
+                <form id="edit-data-form">
+                    <label for="type_edit">Type:</label>
+                    <select id="type_edit" name="type" required>
+                        <option value="House" ${data.type === 'House' ? 'selected' : ''}>House</option>
+                        <option value="Shop" ${data.type === 'Shop' ? 'selected' : ''}>Shop</option>
+                    </select>
+                    
+                    <label for="name_edit">Name / Resident:</label>
+                    <input type="text" id="name_edit" name="name" value="${data.name}" required>
+
+                    <label for="details_edit">Details:</label>
+                    <textarea id="details_edit" name="details">${data.details}</textarea>
+
+                    <label for="color_edit">Pin Color:</label>
+                    <select id="color_edit" name="color">${colorOptions}</select>
+                    
+                    <button type="submit">Update Info</button>
+                </form>
+            `;
+        }
+
+
+        // --- 4. Function to Create a Marker (FIXED for Robust Coordinate Parsing) ---
+        function createMarker(data) {
+            const markerId = data.id || 'N/A'; 
+            
+            // *** CRITICAL FIX: Ensure coordinates are valid numbers ***
+            const lat = parseFloat(data.lat);
+            const lng = parseFloat(data.lng);
+            if (isNaN(lat) || isNaN(lng)) {
+                console.warn(`Skipping pin ID ${markerId}: Invalid coordinates (${data.lat}, ${data.lng})`);
+                return; // Stop execution if coordinates are bad
+            }
+
+            // Determine icon and color for AwesomeMarkers
+            const markerIconClass = data.type === 'Shop' ? 'fa-store' : 'fa-home';
+            const markerColor = data.color || 'blue'; // Use saved color, default to blue
+
+            const awesomeMarker = L.AwesomeMarkers.icon({
+                icon: markerIconClass,
+                markerColor: markerColor,
+                prefix: 'fa'
+            });
+
+            const popupHTML = `
+                <div class="popup-info">
+                    <h4>${data.name} (${data.type})</h4>
+                    <p><strong>Details:</strong> ${data.details}</p>
+                </div>
+                <div class="popup-actions" data-id="${markerId}">
+                    <p><small>ID: ${markerId}</small></p>
+                    <button class="edit-btn">Edit</button>
+                    <button class="delete-btn">Delete</button>
+                </div>
+            `;
+            
+            // Create the marker using the checked coordinates
+            const marker = L.marker([lat, lng], { icon: awesomeMarker }).addTo(map).bindPopup(popupHTML);
+
+            // --- HOVER FEATURE IMPLEMENTATION ---
+            const tooltipContent = `<b>${data.name}</b> (${data.type})`;
+            marker.bindTooltip(tooltipContent, { permanent: false, direction: 'top' }); 
+
+            // Add event listeners once the popup is opened
+            marker.on('popupopen', function() {
+                const actionsDiv = document.querySelector(`.popup-actions[data-id="${markerId}"]`);
+                if (!actionsDiv) return;
+
+                const editButton = actionsDiv.querySelector('.edit-btn');
+                const deleteButton = actionsDiv.querySelector('.delete-btn');
+                
+                // Set up DELETE listener
+                deleteButton.addEventListener('click', () => {
+                    deleteMarker(markerId, marker);
+                });
+
+                // Set up EDIT listener
+                editButton.addEventListener('click', () => {
+                    const editFormHTML = getEditFormHTML(data);
+                    marker.setPopupContent(editFormHTML).openPopup();
+
+                    document.getElementById('edit-data-form').addEventListener('submit', function(event) {
+                        event.preventDefault();
+                        updateMarker(markerId, event.target, marker);
+                    });
+                });
+            });
+        }
+
+        // --- 5. Function to Load Existing Markers from SheetDB (UNCHANGED) ---
+        function loadExistingMarkers() {
+            fetch(SHEETDB_API_URL)
+                .then(response => response.json())
+                .then(data => {
+                    // Data is an array of objects
+                    data.forEach(item => {
+                        // The coordinate checks are now handled inside createMarker
+                        createMarker(item);
+                    });
+                })
+                .catch(error => console.error('Error loading markers:', error));
+        }
+        
+        // --- 6. Handle Clicks on the Map to ADD NEW Locations (FIXED for SheetDB POST Response) ---
+        let tempMarker = null; 
+
+        map.on('click', function(e) {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+            const colorOptions = COLOR_OPTIONS.map(c => `<option value="${c.value}">${c.name}</option>`).join('');
+
+
+            if (tempMarker) { map.removeLayer(tempMarker); }
+
+            // Define the NEW ENTRY form with color selector
+            const newEntryFormHTML = `
+                <h4>Add New Location Info</h4>
+                <form id="data-form">
+                    <label for="type">Type:</label>
+                    <select id="type" name="type" required>
+                        <option value="House">House</option>
+                        <option value="Shop">Shop</option>
+                    </select>
+                    
+                    <label for="name">Name / Resident:</label>
+                    <input type="text" id="name" name="name" required>
+
+                    <label for="details">Details:</label>
+                    <textarea id="details" name="details"></textarea>
+
+                    <label for="color">Pin Color:</label>
+                    <select id="color" name="color">${colorOptions}</select>
+                    
+                    <input type="hidden" id="lat" name="lat" value="${lat}">
+                    <input type="hidden" id="lng" name="lng" value="${lng}">
+                    
+                    <button type="submit">Save New Info</button>
+                </form>
+            `;
+
+            tempMarker = L.marker([lat, lng]).addTo(map).bindPopup(newEntryFormHTML).openPopup();
+
+            setTimeout(() => {
+                document.getElementById('data-form').addEventListener('submit', function(event) {
+                    event.preventDefault(); 
+                    
+                    const formData = new FormData(event.target);
+                    const data = Object.fromEntries(formData.entries());
+                    const payload = { data: data };
+
+                    fetch(SHEETDB_API_URL, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.created === 1) {
+                            alert(`Success! Saved ${data.name} to the Google Sheet.`);
+                            
+                            // *** CRITICAL FIX: Handle SheetDB result format ***
+                            const newMarkerData = Array.isArray(result.data) ? result.data[0] : result.data || result;
+
+                            createMarker(newMarkerData); 
+                            map.closePopup(); 
+                            map.removeLayer(tempMarker);
+                            tempMarker = null;
+                        } else { alert('Error saving new data.'); }
+                    })
+                    .catch(error => { console.error('Network Error:', error); });
+                });
+            }, 10);
+        });
+        
+        // --- FINAL STEP: Load the data when the script starts ---
+        loadExistingMarkers();
+        
+    </script>
+</body>
+</html>
