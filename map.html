@@ -69,6 +69,7 @@
         ];
 
         // --- 1. Initialize the Map ---
+        // Map initialization MUST happen first
         const map = L.map('map').setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
 
         // --- 2. Add OpenStreetMap Tiles ---
@@ -137,10 +138,10 @@
                     </select>
                     
                     <label for="name_edit">Name / Resident:</label>
-                    <input type="text" id="name_edit" name="name" value="${data.name}" required>
+                    <input type="text" id="name_edit" name="name" value="${data.name || ''}" required>
 
                     <label for="details_edit">Details:</label>
-                    <textarea id="details_edit" name="details">${data.details}</textarea>
+                    <textarea id="details_edit" name="details">${data.details || ''}</textarea>
 
                     <label for="color_edit">Pin Color:</label>
                     <select id="color_edit" name="color">${colorOptions}</select>
@@ -167,145 +168,24 @@
             const markerIconClass = data.type === 'Shop' ? 'fa-store' : 'fa-home';
             const markerColor = data.color || 'blue'; // Use saved color, default to blue
 
+            // **Error Fix:** Check if AwesomeMarkers is loaded before using it
+            if (typeof L.AwesomeMarkers === 'undefined') {
+                 console.error("L.AwesomeMarkers is undefined. Cannot create custom icon.");
+                 return; // Stop execution to prevent 'Cannot read properties of undefined'
+            }
+
             const awesomeMarker = L.AwesomeMarkers.icon({
                 icon: markerIconClass,
                 markerColor: markerColor,
                 prefix: 'fa'
             });
 
+            // Check if name and details exist before building HTML
+            const name = data.name || 'No Name Provided';
+            const details = data.details || 'No details.';
+
             const popupHTML = `
                 <div class="popup-info">
-                    <h4>${data.name} (${data.type})</h4>
-                    <p><strong>Details:</strong> ${data.details}</p>
+                    <h4>${name} (${data.type})</h4>
+                    <p><strong>Details:</strong> ${details}</p>
                 </div>
-                <div class="popup-actions" data-id="${markerId}">
-                    <p><small>ID: ${markerId}</small></p>
-                    <button class="edit-btn">Edit</button>
-                    <button class="delete-btn">Delete</button>
-                </div>
-            `;
-            
-            // Create the marker using the checked coordinates
-            const marker = L.marker([lat, lng], { icon: awesomeMarker }).addTo(map).bindPopup(popupHTML);
-
-            // --- HOVER FEATURE IMPLEMENTATION ---
-            const tooltipContent = `<b>${data.name}</b> (${data.type})`;
-            marker.bindTooltip(tooltipContent, { permanent: false, direction: 'top' }); 
-
-            // Add event listeners once the popup is opened
-            marker.on('popupopen', function() {
-                const actionsDiv = document.querySelector(`.popup-actions[data-id="${markerId}"]`);
-                if (!actionsDiv) return;
-
-                const editButton = actionsDiv.querySelector('.edit-btn');
-                const deleteButton = actionsDiv.querySelector('.delete-btn');
-                
-                // Set up DELETE listener
-                deleteButton.addEventListener('click', () => {
-                    deleteMarker(markerId, marker);
-                });
-
-                // Set up EDIT listener
-                editButton.addEventListener('click', () => {
-                    const editFormHTML = getEditFormHTML(data);
-                    marker.setPopupContent(editFormHTML).openPopup();
-
-                    document.getElementById('edit-data-form').addEventListener('submit', function(event) {
-                        event.preventDefault();
-                        updateMarker(markerId, event.target, marker);
-                    });
-                });
-            });
-        }
-
-        // --- 5. Function to Load Existing Markers from SheetDB (UNCHANGED) ---
-        function loadExistingMarkers() {
-            fetch(SHEETDB_API_URL)
-                .then(response => response.json())
-                .then(data => {
-                    // Data is an array of objects
-                    data.forEach(item => {
-                        // The coordinate checks are now handled inside createMarker
-                        createMarker(item);
-                    });
-                })
-                .catch(error => console.error('Error loading markers:', error));
-        }
-        
-        // --- 6. Handle Clicks on the Map to ADD NEW Locations (FIXED for SheetDB POST Response) ---
-        let tempMarker = null; 
-
-        map.on('click', function(e) {
-            const lat = e.latlng.lat;
-            const lng = e.latlng.lng;
-            const colorOptions = COLOR_OPTIONS.map(c => `<option value="${c.value}">${c.name}</option>`).join('');
-
-
-            if (tempMarker) { map.removeLayer(tempMarker); }
-
-            // Define the NEW ENTRY form with color selector
-            const newEntryFormHTML = `
-                <h4>Add New Location Info</h4>
-                <form id="data-form">
-                    <label for="type">Type:</label>
-                    <select id="type" name="type" required>
-                        <option value="House">House</option>
-                        <option value="Shop">Shop</option>
-                    </select>
-                    
-                    <label for="name">Name / Resident:</label>
-                    <input type="text" id="name" name="name" required>
-
-                    <label for="details">Details:</label>
-                    <textarea id="details" name="details"></textarea>
-
-                    <label for="color">Pin Color:</label>
-                    <select id="color" name="color">${colorOptions}</select>
-                    
-                    <input type="hidden" id="lat" name="lat" value="${lat}">
-                    <input type="hidden" id="lng" name="lng" value="${lng}">
-                    
-                    <button type="submit">Save New Info</button>
-                </form>
-            `;
-
-            tempMarker = L.marker([lat, lng]).addTo(map).bindPopup(newEntryFormHTML).openPopup();
-
-            setTimeout(() => {
-                document.getElementById('data-form').addEventListener('submit', function(event) {
-                    event.preventDefault(); 
-                    
-                    const formData = new FormData(event.target);
-                    const data = Object.fromEntries(formData.entries());
-                    const payload = { data: data };
-
-                    fetch(SHEETDB_API_URL, {
-                        method: 'POST',
-                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    })
-                    .then(response => response.json())
-                    .then(result => {
-                        if (result.created === 1) {
-                            alert(`Success! Saved ${data.name} to the Google Sheet.`);
-                            
-                            // *** CRITICAL FIX: Handle SheetDB result format ***
-                            const newMarkerData = Array.isArray(result.data) ? result.data[0] : result.data || result;
-
-                            createMarker(newMarkerData); 
-                            map.closePopup(); 
-                            map.removeLayer(tempMarker);
-                            tempMarker = null;
-                        } else { alert('Error saving new data.'); }
-                    })
-                    .catch(error => { console.error('Network Error:', error); });
-                });
-            }, 10);
-        });
-        
-        // --- FINAL STEP: Load the data when the script starts ---
-        loadExistingMarkers();
-        
-    </script>
-</body>
-</html>
