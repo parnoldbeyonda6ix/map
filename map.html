@@ -78,8 +78,9 @@
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);
 
-        // *** CRITICAL FIX: Ensure map size is calculated before loading markers ***
-        // Invalidate size immediately, and then use a slightly longer delay to load the pins.
+        // *** FIX: Attach the map click listener immediately after tile setup ***
+        map.on('click', handleMapClick); 
+        // *** FIX: Invalidate size immediately, and then delay the load ***
         map.invalidateSize(); 
 
         setTimeout(() => {
@@ -87,7 +88,7 @@
                 map.invalidateSize(); // Invalidate again just before loading data
                 loadExistingMarkers(); // Load the data
             }
-        }, 100); // Increased delay to 100ms for robust loading
+        }, 100); // 100ms delay for robust loading
 
 
         // --- DELETE FUNCTION (UNCHANGED) ---
@@ -233,12 +234,6 @@
                     });
                 });
             });
-
-            // Handle map click listener setup only once
-            if (typeof map.clickListenerSet === 'undefined') {
-                map.clickListenerSet = true;
-                map.on('click', handleMapClick);
-            }
         }
 
         // --- 5. Function to Load Existing Markers from SheetDB ---
@@ -300,7 +295,6 @@
                     const data = Object.fromEntries(formData.entries());
                     const payload = { data: data };
                     
-                    // *** CRITICAL DEBUGGING LOG ***
                     console.log("Attempting POST Request. Payload Data:", data);
 
                     fetch(SHEETDB_API_URL, {
