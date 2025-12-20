@@ -244,7 +244,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         // Configuration - Replace with your SheetDB API URL
-        const SHEETDB_API = 'https://sheetdb.io/api/v1/ipfpxds906zmq';
+        const SHEETDB_API = 'https://sheetdb.io/api/v1/YOUR_API_ID_HERE';
         
         let map;
         let markers = {};
@@ -254,7 +254,7 @@
         
         // Initialize map
         function initMap() {
-            map = L.map('map').setView([52.928, -1.2727], 13);
+            map = L.map('map').setView([51.505, -0.09], 13);
             
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
@@ -381,40 +381,55 @@
                         })
                     });
                     
+                    const result = await response.json();
+                    console.log('Update response:', result);
+                    
                     if (response.ok) {
                         updateStatus('Pin updated successfully');
                         await loadPins();
+                    } else {
+                        updateStatus('Error updating pin: ' + (result.message || 'Unknown error'));
+                        console.error('Update failed:', result);
                     }
                 } else {
-                    // Create new pin
+                    // Create new pin - SheetDB expects direct object, not nested in 'data'
+                    const newPin = {
+                        id: 'pin_' + Date.now(),
+                        name: pinData.name,
+                        type: pinData.type,
+                        details: pinData.details || '',
+                        color: pinData.color,
+                        lat: pinData.lat,
+                        lng: pinData.lng
+                    };
+                    
+                    console.log('Creating pin:', newPin);
+                    
                     const response = await fetch(SHEETDB_API, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({
-                            data: {
-                                id: 'pin_' + Date.now(),
-                                name: pinData.name,
-                                type: pinData.type,
-                                details: pinData.details,
-                                color: pinData.color,
-                                lat: pinData.lat,
-                                lng: pinData.lng
-                            }
-                        })
+                        body: JSON.stringify(newPin)
                     });
+                    
+                    const result = await response.json();
+                    console.log('Create response:', result);
                     
                     if (response.ok) {
                         updateStatus('Pin created successfully');
                         await loadPins();
+                    } else {
+                        updateStatus('Error creating pin: ' + (result.message || 'Unknown error'));
+                        console.error('Create failed:', result);
                     }
                 }
                 
                 hideModal();
             } catch (error) {
                 console.error('Error saving pin:', error);
-                updateStatus('Error saving pin');
+                updateStatus('Error saving pin: ' + error.message);
+                alert('Error saving pin: ' + error.message);
             }
         }
         
