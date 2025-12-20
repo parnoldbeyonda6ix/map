@@ -243,313 +243,328 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Configuration - Replace with your SheetDB API URL
-        const SHEETDB_API = 'https://sheetdb.io/api/v1/YOUR_API_ID_HERE';
-        
-        let map;
-        let markers = {};
-        let currentPin = null;
-        let addingNewPin = false;
-        let tempMarker = null;
-        
-        // Initialize map
-        function initMap() {
-            map = L.map('map').setView([51.505, -0.09], 13);
+        // Wait for the page to fully load before initializing
+        window.addEventListener('DOMContentLoaded', function() {
+            // Configuration - Your SheetDB API URL
+            const SHEETDB_API = 'https://sheetdb.io/api/v1/ipfpxds906zmq';
             
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
+            let map;
+            let markers = {};
+            let currentPin = null;
+            let addingNewPin = false;
+            let tempMarker = null;
             
-            updateStatus('Map loaded. Click "Add New Pin" to place a pin.');
-            loadPins();
-        }
-        
-        // Create custom colored marker
-        function createColoredMarker(color) {
-            return new L.Icon({
-                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-                iconSize: [25, 41],
-                iconAnchor: [12, 41],
-                popupAnchor: [1, -34],
-                shadowSize: [41, 41]
-            });
-        }
-        
-        // Load all pins from SheetDB
-        async function loadPins() {
-            try {
-                updateStatus('Loading pins...');
-                const response = await fetch(SHEETDB_API);
-                const data = await response.json();
+            // Initialize map
+            function initMap() {
+                map = L.map('map').setView([52.9307, -1.2719], 13);
                 
-                // Clear existing markers
-                Object.values(markers).forEach(marker => map.removeLayer(marker));
-                markers = {};
-                
-                // Add markers for each pin
-                data.forEach(pin => {
-                    addMarkerToMap(pin);
-                });
-                
-                updateStatus(`Loaded ${data.length} pins`);
-            } catch (error) {
-                console.error('Error loading pins:', error);
-                updateStatus('Error loading pins');
-            }
-        }
-        
-        // Add marker to map
-        function addMarkerToMap(pin) {
-            const marker = L.marker([parseFloat(pin.lat), parseFloat(pin.lng)], {
-                icon: createColoredMarker(pin.color || 'blue')
-            }).addTo(map);
-            
-            const popupContent = `
-                <div class="popup-title">${pin.name}</div>
-                <div class="popup-detail"><strong>Type:</strong> ${pin.type}</div>
-                ${pin.details ? `<div class="popup-detail">${pin.details}</div>` : ''}
-                <button class="popup-edit" onclick="editPin('${pin.id}')">Edit Pin</button>
-            `;
-            
-            marker.bindPopup(popupContent);
-            markers[pin.id] = marker;
-        }
-        
-        // Update status message
-        function updateStatus(message) {
-            document.getElementById('status').textContent = message;
-        }
-        
-        // Show modal for adding/editing pin
-        function showModal(pin = null) {
-            const modal = document.getElementById('pinModal');
-            const modalTitle = document.getElementById('modalTitle');
-            const deleteBtn = document.getElementById('deleteBtn');
-            
-            if (pin) {
-                modalTitle.textContent = 'Edit Pin';
-                document.getElementById('pinName').value = pin.name;
-                document.getElementById('pinType').value = pin.type;
-                document.getElementById('pinDetails').value = pin.details || '';
-                document.getElementById('pinColor').value = pin.color || 'blue';
-                deleteBtn.style.display = 'block';
-                // Store the complete pin data including coordinates
-                currentPin = {
-                    id: pin.id,
-                    lat: pin.lat,
-                    lng: pin.lng
-                };
-            } else {
-                modalTitle.textContent = 'Add New Pin';
-                document.getElementById('pinForm').reset();
-                deleteBtn.style.display = 'none';
-                // currentPin should already have lat/lng from the map click
-            }
-            
-            modal.style.display = 'block';
-        }
-        
-        // Hide modal
-        function hideModal() {
-            document.getElementById('pinModal').style.display = 'none';
-            if (tempMarker) {
-                map.removeLayer(tempMarker);
-                tempMarker = null;
-            }
-            addingNewPin = false;
-            map.off('click');
-        }
-        
-        // Save pin (create or update)
-        async function savePin(pinData) {
-            try {
-                updateStatus('Saving pin...');
-                
-                if (pinData.id) {
-                    // Update existing pin
-                    const response = await fetch(`${SHEETDB_API}/id/${pinData.id}`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            data: {
-                                name: pinData.name,
-                                type: pinData.type,
-                                details: pinData.details,
-                                color: pinData.color,
-                                lat: pinData.lat,
-                                lng: pinData.lng
-                            }
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    console.log('Update response:', result);
-                    
-                    if (response.ok) {
-                        updateStatus('Pin updated successfully');
-                        await loadPins();
-                    } else {
-                        updateStatus('Error updating pin: ' + (result.message || 'Unknown error'));
-                        console.error('Update failed:', result);
-                    }
-                } else {
-                    // Create new pin - SheetDB expects direct object, not nested in 'data'
-                    const newPin = {
-                        id: 'pin_' + Date.now(),
-                        name: pinData.name,
-                        type: pinData.type,
-                        details: pinData.details || '',
-                        color: pinData.color,
-                        lat: pinData.lat,
-                        lng: pinData.lng
-                    };
-                    
-                    console.log('Creating pin:', newPin);
-                    
-                    const response = await fetch(SHEETDB_API, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(newPin)
-                    });
-                    
-                    const result = await response.json();
-                    console.log('Create response:', result);
-                    
-                    if (response.ok) {
-                        updateStatus('Pin created successfully');
-                        await loadPins();
-                    } else {
-                        updateStatus('Error creating pin: ' + (result.message || 'Unknown error'));
-                        console.error('Create failed:', result);
-                    }
-                }
-                
-                hideModal();
-            } catch (error) {
-                console.error('Error saving pin:', error);
-                updateStatus('Error saving pin: ' + error.message);
-                alert('Error saving pin: ' + error.message);
-            }
-        }
-        
-        // Delete pin
-        async function deletePin(id) {
-            if (!confirm('Are you sure you want to delete this pin?')) {
-                return;
-            }
-            
-            try {
-                updateStatus('Deleting pin...');
-                const response = await fetch(`${SHEETDB_API}/id/${id}`, {
-                    method: 'DELETE'
-                });
-                
-                if (response.ok) {
-                    updateStatus('Pin deleted successfully');
-                    await loadPins();
-                    hideModal();
-                }
-            } catch (error) {
-                console.error('Error deleting pin:', error);
-                updateStatus('Error deleting pin');
-            }
-        }
-        
-        // Edit pin by ID
-        window.editPin = async function(id) {
-            try {
-                const response = await fetch(`${SHEETDB_API}/search?id=${id}`);
-                const data = await response.json();
-                if (data && data.length > 0) {
-                    showModal(data[0]);
-                }
-            } catch (error) {
-                console.error('Error loading pin:', error);
-            }
-        };
-        
-        // Event Listeners
-        document.getElementById('addPin').addEventListener('click', () => {
-            addingNewPin = true;
-            updateStatus('Click on the map to place your pin');
-            
-            map.once('click', (e) => {
-                if (tempMarker) {
-                    map.removeLayer(tempMarker);
-                }
-                
-                tempMarker = L.marker([e.latlng.lat, e.latlng.lng], {
-                    icon: createColoredMarker('blue')
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19
                 }).addTo(map);
                 
-                // Store the coordinates for the new pin
-                currentPin = {
-                    lat: e.latlng.lat.toFixed(6),
-                    lng: e.latlng.lng.toFixed(6)
-                };
+                updateStatus('Map loaded. Click "Add New Pin" to place a pin.');
+                loadPins();
+            }
+            
+            // Create custom colored marker
+            function createColoredMarker(color) {
+                return new L.Icon({
+                    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                });
+            }
+            
+            // Load all pins from SheetDB
+            async function loadPins() {
+                try {
+                    updateStatus('Loading pins...');
+                    const response = await fetch(SHEETDB_API);
+                    const data = await response.json();
+                    
+                    // Clear existing markers
+                    Object.values(markers).forEach(marker => map.removeLayer(marker));
+                    markers = {};
+                    
+                    // Check if data is an array or if we need to handle it differently
+                    let pinsArray = Array.isArray(data) ? data : [];
+                    
+                    // If SheetDB returns an object with an error, handle it
+                    if (data.error) {
+                        console.error('SheetDB error:', data.error);
+                        updateStatus('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    // Add markers for each pin
+                    pinsArray.forEach(pin => {
+                        if (pin.lat && pin.lng) {
+                            addMarkerToMap(pin);
+                        }
+                    });
+                    
+                    updateStatus(`Loaded ${pinsArray.length} pins`);
+                } catch (error) {
+                    console.error('Error loading pins:', error);
+                    updateStatus('Error loading pins - Check API URL');
+                }
+            }
+            
+            // Add marker to map
+            function addMarkerToMap(pin) {
+                const marker = L.marker([parseFloat(pin.lat), parseFloat(pin.lng)], {
+                    icon: createColoredMarker(pin.color || 'blue')
+                }).addTo(map);
                 
-                console.log('New pin location:', currentPin);
-                showModal();
-            });
-        });
-        
-        document.getElementById('refresh').addEventListener('click', () => {
-            loadPins();
-        });
-        
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            hideModal();
-        });
-        
-        document.getElementById('deleteBtn').addEventListener('click', () => {
-            if (currentPin && currentPin.id) {
-                deletePin(currentPin.id);
-            }
-        });
-        
-        document.getElementById('pinForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            
-            // Make sure currentPin exists and has coordinates
-            if (!currentPin || !currentPin.lat || !currentPin.lng) {
-                alert('Error: No location selected. Please try again.');
-                hideModal();
-                return;
+                const popupContent = `
+                    <div class="popup-title">${pin.name}</div>
+                    <div class="popup-detail"><strong>Type:</strong> ${pin.type}</div>
+                    ${pin.details ? `<div class="popup-detail">${pin.details}</div>` : ''}
+                    <button class="popup-edit" onclick="editPin('${pin.id}')">Edit Pin</button>
+                `;
+                
+                marker.bindPopup(popupContent);
+                markers[pin.id] = marker;
             }
             
-            const pinData = {
-                name: document.getElementById('pinName').value,
-                type: document.getElementById('pinType').value,
-                details: document.getElementById('pinDetails').value,
-                color: document.getElementById('pinColor').value,
-                lat: currentPin.lat,
-                lng: currentPin.lng
+            // Update status message
+            function updateStatus(message) {
+                document.getElementById('status').textContent = message;
+            }
+            
+            // Show modal for adding/editing pin
+            function showModal(pin = null) {
+                const modal = document.getElementById('pinModal');
+                const modalTitle = document.getElementById('modalTitle');
+                const deleteBtn = document.getElementById('deleteBtn');
+                
+                if (pin) {
+                    modalTitle.textContent = 'Edit Pin';
+                    document.getElementById('pinName').value = pin.name;
+                    document.getElementById('pinType').value = pin.type;
+                    document.getElementById('pinDetails').value = pin.details || '';
+                    document.getElementById('pinColor').value = pin.color || 'blue';
+                    deleteBtn.style.display = 'block';
+                    // Store the complete pin data including coordinates
+                    currentPin = {
+                        id: pin.id,
+                        lat: pin.lat,
+                        lng: pin.lng
+                    };
+                } else {
+                    modalTitle.textContent = 'Add New Pin';
+                    document.getElementById('pinForm').reset();
+                    deleteBtn.style.display = 'none';
+                    // currentPin should already have lat/lng from the map click
+                }
+                
+                modal.style.display = 'block';
+            }
+            
+            // Hide modal
+            function hideModal() {
+                document.getElementById('pinModal').style.display = 'none';
+                if (tempMarker) {
+                    map.removeLayer(tempMarker);
+                    tempMarker = null;
+                }
+                addingNewPin = false;
+                map.off('click');
+            }
+            
+            // Save pin (create or update)
+            async function savePin(pinData) {
+                try {
+                    updateStatus('Saving pin...');
+                    
+                    if (pinData.id) {
+                        // Update existing pin
+                        const response = await fetch(`${SHEETDB_API}/id/${pinData.id}`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                data: {
+                                    name: pinData.name,
+                                    type: pinData.type,
+                                    details: pinData.details,
+                                    color: pinData.color,
+                                    lat: pinData.lat,
+                                    lng: pinData.lng
+                                }
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        console.log('Update response:', result);
+                        
+                        if (response.ok) {
+                            updateStatus('Pin updated successfully');
+                            await loadPins();
+                        } else {
+                            updateStatus('Error updating pin: ' + (result.message || 'Unknown error'));
+                            console.error('Update failed:', result);
+                        }
+                    } else {
+                        // Create new pin - SheetDB expects direct object, not nested in 'data'
+                        const newPin = {
+                            id: 'pin_' + Date.now(),
+                            name: pinData.name,
+                            type: pinData.type,
+                            details: pinData.details || '',
+                            color: pinData.color,
+                            lat: pinData.lat,
+                            lng: pinData.lng
+                        };
+                        
+                        console.log('Creating pin:', newPin);
+                        
+                        const response = await fetch(SHEETDB_API, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(newPin)
+                        });
+                        
+                        const result = await response.json();
+                        console.log('Create response:', result);
+                        
+                        if (response.ok || result.created === 1) {
+                            updateStatus('Pin created successfully');
+                            await loadPins();
+                        } else {
+                            updateStatus('Error creating pin: ' + (result.message || 'Unknown error'));
+                            console.error('Create failed:', result);
+                        }
+                    }
+                    
+                    hideModal();
+                } catch (error) {
+                    console.error('Error saving pin:', error);
+                    updateStatus('Error saving pin: ' + error.message);
+                    alert('Error saving pin: ' + error.message);
+                }
+            }
+            
+            // Delete pin
+            async function deletePin(id) {
+                if (!confirm('Are you sure you want to delete this pin?')) {
+                    return;
+                }
+                
+                try {
+                    updateStatus('Deleting pin...');
+                    const response = await fetch(`${SHEETDB_API}/id/${id}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        updateStatus('Pin deleted successfully');
+                        await loadPins();
+                        hideModal();
+                    }
+                } catch (error) {
+                    console.error('Error deleting pin:', error);
+                    updateStatus('Error deleting pin');
+                }
+            }
+            
+            // Edit pin by ID
+            window.editPin = async function(id) {
+                try {
+                    const response = await fetch(`${SHEETDB_API}/search?id=${id}`);
+                    const data = await response.json();
+                    if (data && data.length > 0) {
+                        showModal(data[0]);
+                    }
+                } catch (error) {
+                    console.error('Error loading pin:', error);
+                }
             };
             
-            if (currentPin && currentPin.id) {
-                pinData.id = currentPin.id;
-            }
+            // Event Listeners
+            document.getElementById('addPin').addEventListener('click', () => {
+                addingNewPin = true;
+                updateStatus('Click on the map to place your pin');
+                
+                map.once('click', (e) => {
+                    if (tempMarker) {
+                        map.removeLayer(tempMarker);
+                    }
+                    
+                    tempMarker = L.marker([e.latlng.lat, e.latlng.lng], {
+                        icon: createColoredMarker('blue')
+                    }).addTo(map);
+                    
+                    // Store the coordinates for the new pin
+                    currentPin = {
+                        lat: e.latlng.lat.toFixed(6),
+                        lng: e.latlng.lng.toFixed(6)
+                    };
+                    
+                    console.log('New pin location:', currentPin);
+                    showModal();
+                });
+            });
             
-            console.log('Submitting pin data:', pinData);
-            savePin(pinData);
-        });
-        
-        // Close modal when clicking outside
-        window.addEventListener('click', (e) => {
-            const modal = document.getElementById('pinModal');
-            if (e.target === modal) {
+            document.getElementById('refresh').addEventListener('click', () => {
+                loadPins();
+            });
+            
+            document.getElementById('cancelBtn').addEventListener('click', () => {
                 hideModal();
-            }
-        });
-        
-        // Initialize the map when page loads
-        initMap();
+            });
+            
+            document.getElementById('deleteBtn').addEventListener('click', () => {
+                if (currentPin && currentPin.id) {
+                    deletePin(currentPin.id);
+                }
+            });
+            
+            document.getElementById('pinForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                
+                // Make sure currentPin exists and has coordinates
+                if (!currentPin || !currentPin.lat || !currentPin.lng) {
+                    alert('Error: No location selected. Please try again.');
+                    hideModal();
+                    return;
+                }
+                
+                const pinData = {
+                    name: document.getElementById('pinName').value,
+                    type: document.getElementById('pinType').value,
+                    details: document.getElementById('pinDetails').value,
+                    color: document.getElementById('pinColor').value,
+                    lat: currentPin.lat,
+                    lng: currentPin.lng
+                };
+                
+                if (currentPin && currentPin.id) {
+                    pinData.id = currentPin.id;
+                }
+                
+                console.log('Submitting pin data:', pinData);
+                savePin(pinData);
+            });
+            
+            // Close modal when clicking outside
+            window.addEventListener('click', (e) => {
+                const modal = document.getElementById('pinModal');
+                if (e.target === modal) {
+                    hideModal();
+                }
+            });
+            
+            // Initialize the map when page loads
+            initMap();
+        }); // End of DOMContentLoaded
     </script>
 </body>
 </html>
