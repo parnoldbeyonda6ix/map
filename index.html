@@ -335,12 +335,17 @@
                 document.getElementById('pinDetails').value = pin.details || '';
                 document.getElementById('pinColor').value = pin.color || 'blue';
                 deleteBtn.style.display = 'block';
-                currentPin = pin;
+                // Store the complete pin data including coordinates
+                currentPin = {
+                    id: pin.id,
+                    lat: pin.lat,
+                    lng: pin.lng
+                };
             } else {
                 modalTitle.textContent = 'Add New Pin';
                 document.getElementById('pinForm').reset();
                 deleteBtn.style.display = 'none';
-                currentPin = null;
+                // currentPin should already have lat/lng from the map click
             }
             
             modal.style.display = 'block';
@@ -483,11 +488,13 @@
                     icon: createColoredMarker('blue')
                 }).addTo(map);
                 
+                // Store the coordinates for the new pin
                 currentPin = {
                     lat: e.latlng.lat.toFixed(6),
                     lng: e.latlng.lng.toFixed(6)
                 };
                 
+                console.log('New pin location:', currentPin);
                 showModal();
             });
         });
@@ -509,6 +516,13 @@
         document.getElementById('pinForm').addEventListener('submit', (e) => {
             e.preventDefault();
             
+            // Make sure currentPin exists and has coordinates
+            if (!currentPin || !currentPin.lat || !currentPin.lng) {
+                alert('Error: No location selected. Please try again.');
+                hideModal();
+                return;
+            }
+            
             const pinData = {
                 name: document.getElementById('pinName').value,
                 type: document.getElementById('pinType').value,
@@ -522,6 +536,7 @@
                 pinData.id = currentPin.id;
             }
             
+            console.log('Submitting pin data:', pinData);
             savePin(pinData);
         });
         
