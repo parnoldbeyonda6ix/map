@@ -434,6 +434,66 @@
             cursor: pointer;
             font-weight: bold;
         }
+
+        .custom-tooltip {
+            background: white;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+            padding: 10px 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-size: 14px;
+            color: #333;
+            max-width: 200px;
+        }
+
+        .custom-tooltip::before {
+            border-top-color: #4CAF50 !important;
+        }
+
+        .tooltip-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #2196F3;
+        }
+
+        .tooltip-type {
+            font-size: 12px;
+            color: #666;
+        }
+
+        @keyframes markerDrop {
+            0% {
+                transform: translateY(-500px) rotate(0deg);
+                opacity: 0;
+            }
+            60% {
+                transform: translateY(10px) rotate(5deg);
+                opacity: 1;
+            }
+            80% {
+                transform: translateY(-5px) rotate(-3deg);
+            }
+            100% {
+                transform: translateY(0) rotate(0deg);
+            }
+        }
+
+        @keyframes markerBounce {
+            0%, 100% {
+                transform: translateY(0) scale(1);
+            }
+            50% {
+                transform: translateY(-20px) scale(1.1);
+            }
+        }
+
+        .marker-animation {
+            animation: markerDrop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .marker-pulse {
+            animation: markerBounce 0.6s ease;
+        }
     </style>
 </head>
 <body>
@@ -707,7 +767,7 @@
                     pinsArray.forEach(pin => {
                         console.log('Processing pin:', pin);
                         if (pin.lat && pin.lng) {
-                            addMarkerToMap(pin);
+                            addMarkerToMap(pin, false);
                         }
                     });
                     
@@ -719,7 +779,7 @@
             }
             
             // Add marker to map
-            function addMarkerToMap(pin) {
+            function addMarkerToMap(pin, animate = false) {
                 const pinName = pin.name || pin.Name || pin.NAME || 'Unnamed Pin';
                 const pinType = pin.type || pin.Type || pin.TYPE || 'Unknown';
                 const pinDetails = pin.details || pin.Details || pin.DETAILS || '';
@@ -747,6 +807,29 @@
                 const marker = L.marker([parseFloat(pin.lat), parseFloat(pin.lng)], {
                     icon: createColoredMarker(pinColor)
                 }).addTo(map);
+
+                // Add animation for new markers
+                if (animate) {
+                    const icon = marker._icon;
+                    if (icon) {
+                        icon.classList.add('marker-animation');
+                        setTimeout(() => {
+                            icon.classList.remove('marker-animation');
+                        }, 800);
+                    }
+                }
+
+                // Add tooltip on hover
+                const tooltipContent = `
+                    <div class="tooltip-name">${pinName}</div>
+                    <div class="tooltip-type">${pinType}</div>
+                `;
+                
+                marker.bindTooltip(tooltipContent, {
+                    className: 'custom-tooltip',
+                    direction: 'top',
+                    offset: [0, -35]
+                });
                 
                 let photosHtml = '';
                 if (photos.length > 0) {
@@ -964,7 +1047,30 @@
                         
                         if (response.ok || result.created === 1) {
                             updateStatus('Pin created successfully');
-                            await loadPins();
+                            
+                            // Add the new pin with animation
+                            const newPinData = {
+                                ...newPin,
+                                photos: photosJson,
+                                stories: storiesJson
+                            };
+                            
+                            // Clear and reload all pins
+                            Object.values(markers).forEach(marker => map.removeLayer(marker));
+                            markers = {};
+                            
+                            // Load all pins from database
+                            const refreshResponse = await fetch(SHEETDB_API);
+                            const refreshData = await refreshResponse.json();
+                            const pinsArray = Array.isArray(refreshData) ? refreshData : [];
+                            
+                            // Add all pins, animating the newest one
+                            pinsArray.forEach(pin => {
+                                if (pin.lat && pin.lng) {
+                                    const isNewPin = pin.id === newPin.id;
+                                    addMarkerToMap(pin, isNewPin);
+                                }
+                            });
                         } else {
                             updateStatus('Error creating pin: ' + (result.message || 'Unknown error'));
                             console.error('Create failed:', result);
